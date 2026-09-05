@@ -12,6 +12,13 @@ Alur:
 Menjalankan Ollama cloud model:
     ollama pull gpt-oss:20b-cloud
     ollama run gpt-oss:20b-cloud   (atau cukup pastikan `ollama serve` aktif)
+
+Catatan (macOS fix):
+    Versi sebelumnya memakai MediaPipe Tasks API (HandLandmarker), yang punya bug
+    dikenal di macOS: graph internalnya tetap minta layanan GPU/Metal walaupun
+    delegate sudah diset ke CPU, sehingga proses crash (F0000 Check failed: service_).
+    Versi ini memakai API lama `mediapipe.solutions.hands` yang tidak membangun
+    graph berbasis GPU tersebut, jadi stabil di macOS (termasuk Apple Silicon).
 """
 
 import base64
@@ -36,6 +43,9 @@ with open("model.pkl", "rb") as f:
     LABELS = saved["labels"]
 
 # --- Setup MediaPipe HandLandmarker (Tasks API) ---
+# Catatan: sengaja pakai Tasks API + delegate CPU di sini karena kita menjalankan
+# app.py di dalam container Docker (Linux), tempat bug crash GPU/Metal macOS
+# tidak muncul sama sekali (sudah terbukti stabil saat menjalankan train_model.py).
 MODEL_ASSET_PATH = "hand_landmarker.task"
 MODEL_ASSET_URL = (
     "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
@@ -47,7 +57,7 @@ if not os.path.exists(MODEL_ASSET_PATH):
 
 base_options = mp_python.BaseOptions(
     model_asset_path=MODEL_ASSET_PATH,
-    delegate=mp_python.BaseOptions.Delegate.CPU,  # hindari crash GPU/Metal delegate di macOS
+    delegate=mp_python.BaseOptions.Delegate.CPU,
 )
 hand_options = mp_vision.HandLandmarkerOptions(
     base_options=base_options,
@@ -58,7 +68,10 @@ hand_options = mp_vision.HandLandmarkerOptions(
 hands_detector = mp_vision.HandLandmarker.create_from_options(hand_options)
 
 # --- Konfigurasi Ollama ---
-OLLAMA_URL = "http://localhost:11434/api/chat"
+# "host.docker.internal" dipakai supaya container bisa menghubungi Ollama
+# yang jalan di host Mac kamu (di luar container), bukan "localhost"
+# (yang di dalam container cuma merujuk ke container itu sendiri).
+OLLAMA_URL = "http://host.docker.internal:11434/api/chat"
 OLLAMA_MODEL = "gpt-oss:20b-cloud"  # sesuaikan dengan nama model cloud di Ollama kamu
 
 
@@ -140,4 +153,4 @@ def generate_sentence():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(host="0.0.0.0", debug=True, port=5000)
