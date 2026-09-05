@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Deteksi Bahasa Isyarat ke Suara</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 720px; margin: 40px auto; text-align: center; }
+  video, canvas { border-radius: 12px; }
+  #letter { font-size: 64px; font-weight: bold; margin: 10px 0; }
+  #confidence { color: #666; }
+  #buffer { font-size: 24px; min-height: 40px; padding: 10px; background: #f2f2f2; border-radius: 8px; margin: 20px 0; }
+  #sentence { font-size: 22px; color: #2a6; min-height: 30px; margin: 10px 0; }
+  button { font-size: 16px; padding: 10px 18px; margin: 6px; border-radius: 8px; border: none; cursor: pointer; }
+  .primary { background: #2a6; color: white; }
+  .secondary { background: #ddd; }
+</style>
+</head>
+<body>
+
+<h2>🖐️ Deteksi Gesture &rarr; Teks &rarr; Suara</h2>
+
+<video id="video" width="400" height="300" autoplay muted></video>
+<canvas id="canvas" width="400" height="300" style="display:none;"></canvas>
+
+<div id="letter">-</div>
+<div id="confidence">Confidence: -</div>
+
+<button class="primary" onclick="tambahHuruf()">+ Tambah huruf ke teks</button>
+<button class="secondary" onclick="tambahSpasi()">Tambah spasi</button>
+<button class="secondary" onclick="resetBuffer()">Reset</button>
+
+<div id="buffer">(belum ada huruf)</div>
+
+<button class="primary" onclick="rangkaiDanUcapkan()">🔊 Rangkai & Ucapkan</button>
+
+<div id="sentence"></div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let currentLetter = null;
+let buffer = "";
+
+// Akses webcam
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+  video.srcObject = stream;
+});
+
+// Ambil frame & kirim ke backend tiap 700ms untuk prediksi live
+setInterval(() => {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+  fetch('/predict', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: dataUrl })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.letter) {
+      currentLetter = data.letter;
+      document.getElementById('letter').innerText = data.letter.toUpperCase();
+      document.getElementById('confidence').innerText = `Confidence: ${(data.confidence * 100).toFixed(0)}%`;
+    } else {
+      currentLetter = null;
+      document.getElementById('letter').innerText = "-";
+      document.getElementById('confidence').innerText = "Tangan tidak terdeteksi";
+    }
+  });
+}, 700);
+
+function tambahHuruf() {
+  if (currentLetter) {
+    buffer += currentLetter;
+    document.getElementById('buffer').innerText = buffer;
+  }
+}
+
+function tambahSpasi() {
+  buffer += " ";
+  document.getElementById('buffer').innerText = buffer;
+}
+
+function resetBuffer() {
+  buffer = "";
+  document.getElementById('buffer').innerText = "(belum ada huruf)";
+  document.getElementById('sentence').innerText = "";
+}
+
+function rangkaiDanUcapkan() {
+  if (!buffer.trim()) return;
+
+  fetch('/generate_sentence', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ letters: buffer })
+  })
+  .then(res => res.json())
+  .then(data => {
+    document.getElementById('sentence').innerText = data.sentence;
+    ucapkan(data.sentence);
+  });
+}
+
+function ucapkan(teks) {
+  const utterance = new SpeechSynthesisUtterance(teks);
+  utterance.lang = 'id-ID';
+  speechSynthesis.speak(utterance);
+}
+</script>
+
+</body>
+</html>

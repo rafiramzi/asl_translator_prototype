@@ -1,0 +1,8 @@
+venv/
+datasets/
+dataset/
+__pycache__/
+*.pyc
+.git/
+hand_landmarker.task
+model.pkl
